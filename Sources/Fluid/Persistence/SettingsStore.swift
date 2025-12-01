@@ -1,0 +1,580 @@
+import Foundation
+import ServiceManagement
+import ApplicationServices
+import AppKit
+import Combine
+
+// MARK: - HotkeyShortcut
+
+struct HotkeyShortcut: Codable, Equatable {
+    var keyCode: UInt16
+    private var modifierFlagsRawValue: UInt
+
+    var modifierFlags: NSEvent.ModifierFlags {
+        get { NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue) }
+        set { modifierFlagsRawValue = newValue.rawValue }
+    }
+
+    init(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
+        self.keyCode = keyCode
+        self.modifierFlagsRawValue = modifierFlags.rawValue
+    }
+
+    var displayString: String {
+        var parts: [String] = []
+
+        if modifierFlags.contains(.control) { parts.append("⌃") }
+        if modifierFlags.contains(.option) { parts.append("⌥") }
+        if modifierFlags.contains(.shift) { parts.append("⇧") }
+        if modifierFlags.contains(.command) { parts.append("⌘") }
+        if modifierFlags.contains(.function) { parts.append("fn") }
+
+        // Map key code to key name
+        let keyName = Self.keyCodeToString(keyCode)
+        parts.append(keyName)
+
+        return parts.joined()
+    }
+
+    private static func keyCodeToString(_ keyCode: UInt16) -> String {
+        let keyCodeMap: [UInt16: String] = [
+            0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
+            8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
+            16: "Y", 17: "T", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6",
+            23: "5", 24: "=", 25: "9", 26: "7", 27: "-", 28: "8", 29: "0",
+            30: "]", 31: "O", 32: "U", 33: "[", 34: "I", 35: "P", 36: "↵",
+            37: "L", 38: "J", 39: "'", 40: "K", 41: ";", 42: "\\", 43: ",",
+            44: "/", 45: "N", 46: "M", 47: ".", 48: "⇥", 49: "Space",
+            50: "`", 51: "⌫", 53: "⎋", 55: "⌘", 56: "⇧", 57: "⇪",
+            58: "⌥", 59: "⌃", 60: "⇧", 61: "⌥", 62: "⌃", 63: "fn",
+            96: "F5", 97: "F6", 98: "F7", 99: "F3", 100: "F8", 101: "F9",
+            103: "F11", 105: "F13", 107: "F14", 109: "F10", 111: "F12",
+            113: "F15", 118: "F4", 120: "F2", 122: "F1", 123: "←",
+            124: "→", 125: "↓", 126: "↑"
+        ]
+        return keyCodeMap[keyCode] ?? "Key\(keyCode)"
+    }
+
+    static func == (lhs: HotkeyShortcut, rhs: HotkeyShortcut) -> Bool {
+        return lhs.keyCode == rhs.keyCode && lhs.modifierFlagsRawValue == rhs.modifierFlagsRawValue
+    }
+}
+
+// MARK: - SettingsStore
+
+final class SettingsStore: ObservableObject
+{
+    static let shared = SettingsStore()
+    private let defaults = UserDefaults.standard
+
+    private init() {}
+
+    // Keys
+    private enum Keys
+    {
+        static let enableAIProcessing = "EnableAIProcessing"
+         static let enableDebugLogs = "EnableDebugLogs"
+        static let availableAIModels = "AvailableAIModels"
+        static let availableModelsByProvider = "AvailableModelsByProvider"
+        static let selectedAIModel = "SelectedAIModel"
+        static let selectedModelByProvider = "SelectedModelByProvider"
+        static let selectedProviderID = "SelectedProviderID"
+        static let providerAPIKeys = "ProviderAPIKeys"
+        static let savedProviders = "SavedProviders"
+        static let hotkeyShortcutKey = "HotkeyShortcutKey"
+         static let preferredInputDeviceUID = "PreferredInputDeviceUID"
+         static let preferredOutputDeviceUID = "PreferredOutputDeviceUID"
+        static let visualizerNoiseThreshold = "VisualizerNoiseThreshold"
+        static let launchAtStartup = "LaunchAtStartup"
+        static let showInDock = "ShowInDock"
+        static let pressAndHoldMode = "PressAndHoldMode"
+        static let enableStreamingPreview = "EnableStreamingPreview"
+        static let enableAIStreaming = "EnableAIStreaming"
+        static let copyTranscriptionToClipboard = "CopyTranscriptionToClipboard"
+        static let autoUpdateCheckEnabled = "AutoUpdateCheckEnabled"
+        static let lastUpdateCheckDate = "LastUpdateCheckDate"
+        static let playgroundUsed = "PlaygroundUsed"
+        
+        // Command Mode Keys
+        static let commandModeSelectedModel = "CommandModeSelectedModel"
+        static let commandModeSelectedProviderID = "CommandModeSelectedProviderID"
+        static let commandModeHotkeyShortcut = "CommandModeHotkeyShortcut"
+        static let commandModeConfirmBeforeExecute = "CommandModeConfirmBeforeExecute"
+        static let commandModeLinkedToGlobal = "CommandModeLinkedToGlobal"
+        
+        // Rewrite Mode Keys
+        static let rewriteModeHotkeyShortcut = "RewriteModeHotkeyShortcut"
+        static let rewriteModeSelectedModel = "RewriteModeSelectedModel"
+        static let rewriteModeSelectedProviderID = "RewriteModeSelectedProviderID"
+        static let rewriteModeLinkedToGlobal = "RewriteModeLinkedToGlobal"
+        
+        // Stats Keys
+        static let userTypingWPM = "UserTypingWPM"
+    }
+
+    struct SavedProvider: Codable, Identifiable, Hashable
+    {
+        let id: String
+        let name: String
+        let baseURL: String
+        let apiKey: String
+        let models: [String]
+
+        init(id: String = UUID().uuidString, name: String, baseURL: String, apiKey: String, models: [String] = [])
+        {
+            self.id = id
+            self.name = name
+            self.baseURL = baseURL
+            self.apiKey = apiKey
+            self.models = models
+        }
+    }
+
+    var enableAIProcessing: Bool
+    {
+        get { defaults.bool(forKey: Keys.enableAIProcessing) }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.enableAIProcessing)
+        }
+    }
+
+    var availableModels: [String]
+    {
+        get { (defaults.array(forKey: Keys.availableAIModels) as? [String]) ?? [] }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.availableAIModels)
+        }
+    }
+
+    var availableModelsByProvider: [String: [String]]
+    {
+        get { (defaults.dictionary(forKey: Keys.availableModelsByProvider) as? [String: [String]]) ?? [:] }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.availableModelsByProvider)
+        }
+    }
+
+     var enableDebugLogs: Bool
+     {
+         get { defaults.bool(forKey: Keys.enableDebugLogs) }
+         set {
+             objectWillChange.send()
+             defaults.set(newValue, forKey: Keys.enableDebugLogs)
+         }
+     }
+
+    var selectedModel: String?
+    {
+        get { defaults.string(forKey: Keys.selectedAIModel) }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.selectedAIModel)
+        }
+    }
+
+    var selectedModelByProvider: [String: String]
+    {
+        get { (defaults.dictionary(forKey: Keys.selectedModelByProvider) as? [String: String]) ?? [:] }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.selectedModelByProvider)
+        }
+    }
+
+    var providerAPIKeys: [String: String]
+    {
+        get { (defaults.dictionary(forKey: Keys.providerAPIKeys) as? [String: String]) ?? [:] }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.providerAPIKeys)
+        }
+    }
+
+    var selectedProviderID: String
+    {
+        get { defaults.string(forKey: Keys.selectedProviderID) ?? "openai" }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.selectedProviderID)
+        }
+    }
+
+    var savedProviders: [SavedProvider]
+    {
+        get
+        {
+            guard let data = defaults.data(forKey: Keys.savedProviders),
+                  let decoded = try? JSONDecoder().decode([SavedProvider].self, from: data) else { return [] }
+            return decoded
+        }
+        set
+        {
+            objectWillChange.send()
+            if let encoded = try? JSONEncoder().encode(newValue)
+            {
+                defaults.set(encoded, forKey: Keys.savedProviders)
+            }
+        }
+    }
+
+    var hotkeyShortcut: HotkeyShortcut
+    {
+        get
+        {
+            if let data = defaults.data(forKey: Keys.hotkeyShortcutKey),
+               let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
+            {
+                return shortcut
+            }
+            return HotkeyShortcut(keyCode: 61, modifierFlags: [])
+        }
+        set
+        {
+            objectWillChange.send()
+            if let data = try? JSONEncoder().encode(newValue)
+            {
+                defaults.set(data, forKey: Keys.hotkeyShortcutKey)
+            }
+        }
+    }
+
+
+    var pressAndHoldMode: Bool
+    {
+        get { defaults.bool(forKey: Keys.pressAndHoldMode) }
+        set { defaults.set(newValue, forKey: Keys.pressAndHoldMode) }
+    }
+
+    var enableStreamingPreview: Bool
+    {
+        get {
+            let value = defaults.object(forKey: Keys.enableStreamingPreview)
+            return value as? Bool ?? true // Default to true (enabled)
+        }
+        set { defaults.set(newValue, forKey: Keys.enableStreamingPreview) }
+    }
+
+    var enableAIStreaming: Bool
+    {
+        get {
+            let value = defaults.object(forKey: Keys.enableAIStreaming)
+            return value as? Bool ?? false // Default to false (disabled)
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.enableAIStreaming)
+        }
+    }
+
+    var copyTranscriptionToClipboard: Bool
+    {
+        get { defaults.bool(forKey: Keys.copyTranscriptionToClipboard) }
+        set { defaults.set(newValue, forKey: Keys.copyTranscriptionToClipboard) }
+    }
+
+     var preferredInputDeviceUID: String?
+     {
+         get { defaults.string(forKey: Keys.preferredInputDeviceUID) }
+         set { defaults.set(newValue, forKey: Keys.preferredInputDeviceUID) }
+     }
+
+     var preferredOutputDeviceUID: String?
+     {
+         get { defaults.string(forKey: Keys.preferredOutputDeviceUID) }
+         set { defaults.set(newValue, forKey: Keys.preferredOutputDeviceUID) }
+     }
+    
+    var visualizerNoiseThreshold: Double
+    {
+        get {
+            let value = defaults.double(forKey: Keys.visualizerNoiseThreshold)
+            return value == 0.0 ? 0.4 : value // Default to 0.4 if not set
+        }
+        set { defaults.set(newValue, forKey: Keys.visualizerNoiseThreshold) }
+    }
+
+    // MARK: - Preferences Settings
+
+    var launchAtStartup: Bool
+    {
+        get { defaults.bool(forKey: Keys.launchAtStartup) }
+        set {
+            defaults.set(newValue, forKey: Keys.launchAtStartup)
+            // Update launch agent registration
+            updateLaunchAtStartup(newValue)
+        }
+    }
+
+    // MARK: - Initialization Methods
+
+    func initializeAppSettings() {
+        #if os(macOS)
+        // Apply dock visibility setting on app launch
+        let dockVisible = showInDock
+        DebugLogger.shared.info("Initializing app with dock visibility: \(dockVisible)", source: "SettingsStore")
+
+        // Set activation policy based on saved preference
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(dockVisible ? .regular : .accessory)
+        }
+        #endif
+    }
+
+    var showInDock: Bool
+    {
+        get {
+            let value = defaults.object(forKey: Keys.showInDock)
+            return value as? Bool ?? true // Default to true if not set
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.showInDock)
+            // Update dock visibility
+            updateDockVisibility(newValue)
+        }
+    }
+
+    var autoUpdateCheckEnabled: Bool
+    {
+        get {
+            let value = defaults.object(forKey: Keys.autoUpdateCheckEnabled)
+            return value as? Bool ?? true // Default to enabled
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.autoUpdateCheckEnabled)
+        }
+    }
+
+    var lastUpdateCheckDate: Date?
+    {
+        get {
+            return defaults.object(forKey: Keys.lastUpdateCheckDate) as? Date
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.lastUpdateCheckDate)
+        }
+    }
+
+    // MARK: - Update Check Helper
+
+    func shouldCheckForUpdates() -> Bool {
+        guard autoUpdateCheckEnabled else { return false }
+        
+        guard let lastCheck = lastUpdateCheckDate else {
+            // Never checked before, should check
+            return true
+        }
+        
+        // Check if more than 24 hours have passed
+        let dayInSeconds: TimeInterval = 24 * 60 * 60
+        return Date().timeIntervalSince(lastCheck) >= dayInSeconds
+    }
+
+    func updateLastCheckDate() {
+        lastUpdateCheckDate = Date()
+    }
+
+    var playgroundUsed: Bool {
+        get { defaults.bool(forKey: Keys.playgroundUsed) }
+        set { defaults.set(newValue, forKey: Keys.playgroundUsed) }
+    }
+    
+    // MARK: - Command Mode Settings
+    
+    var commandModeSelectedModel: String?
+    {
+        get { defaults.string(forKey: Keys.commandModeSelectedModel) }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.commandModeSelectedModel)
+        }
+    }
+    
+    var commandModeSelectedProviderID: String
+    {
+        get { defaults.string(forKey: Keys.commandModeSelectedProviderID) ?? "openai" }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.commandModeSelectedProviderID)
+        }
+    }
+    
+    var commandModeLinkedToGlobal: Bool
+    {
+        get { defaults.bool(forKey: Keys.commandModeLinkedToGlobal) } // Default to false (let user opt-in, or true if preferred)
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.commandModeLinkedToGlobal)
+        }
+    }
+    
+    var commandModeHotkeyShortcut: HotkeyShortcut
+    {
+        get
+        {
+            if let data = defaults.data(forKey: Keys.commandModeHotkeyShortcut),
+               let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
+            {
+                return shortcut
+            }
+            // Default to Right Command key (keyCode: 54, no modifiers for the key itself)
+            return HotkeyShortcut(keyCode: 54, modifierFlags: [])
+        }
+        set
+        {
+            objectWillChange.send()
+            if let data = try? JSONEncoder().encode(newValue)
+            {
+                defaults.set(data, forKey: Keys.commandModeHotkeyShortcut)
+            }
+        }
+    }
+    
+    var commandModeConfirmBeforeExecute: Bool
+    {
+        get {
+            // Default to true (safer - ask before running commands)
+            let value = defaults.object(forKey: Keys.commandModeConfirmBeforeExecute)
+            return value as? Bool ?? true
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.commandModeConfirmBeforeExecute)
+        }
+    }
+    
+    // MARK: - Rewrite Mode Settings
+    
+    var rewriteModeHotkeyShortcut: HotkeyShortcut
+    {
+        get
+        {
+            if let data = defaults.data(forKey: Keys.rewriteModeHotkeyShortcut),
+               let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
+            {
+                return shortcut
+            }
+            // Default to Option+R (keyCode: 15 is R, with Option modifier)
+            return HotkeyShortcut(keyCode: 15, modifierFlags: [.option])
+        }
+        set
+        {
+            objectWillChange.send()
+            if let data = try? JSONEncoder().encode(newValue)
+            {
+                defaults.set(data, forKey: Keys.rewriteModeHotkeyShortcut)
+            }
+        }
+    }
+    
+    var rewriteModeSelectedModel: String?
+    {
+        get { defaults.string(forKey: Keys.rewriteModeSelectedModel) }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.rewriteModeSelectedModel)
+        }
+    }
+    
+    var rewriteModeSelectedProviderID: String
+    {
+        get { defaults.string(forKey: Keys.rewriteModeSelectedProviderID) ?? "openai" }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.rewriteModeSelectedProviderID)
+        }
+    }
+    
+    var rewriteModeLinkedToGlobal: Bool
+    {
+        get {
+            // Default to true - sync with global settings by default
+            let value = defaults.object(forKey: Keys.rewriteModeLinkedToGlobal)
+            return value as? Bool ?? true
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.rewriteModeLinkedToGlobal)
+        }
+    }
+    
+    // MARK: - Stats Settings
+    
+    /// User's typing speed in words per minute (for time saved calculation)
+    var userTypingWPM: Int
+    {
+        get {
+            let value = defaults.integer(forKey: Keys.userTypingWPM)
+            return value > 0 ? value : 40  // Default to 40 WPM
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(max(1, min(200, newValue)), forKey: Keys.userTypingWPM)  // Clamp 1-200
+        }
+    }
+
+    // MARK: - Private Methods
+
+    private func updateLaunchAtStartup(_ enabled: Bool) {
+        #if os(macOS)
+        // Note: SMAppService.mainApp requires the app to be signed with Developer ID
+        // and have proper entitlements. This may not work in development builds.
+        let service = SMAppService.mainApp
+
+        do {
+            if enabled {
+                try service.register()
+                DebugLogger.shared.info("Successfully registered for launch at startup", source: "SettingsStore")
+            } else {
+                try service.unregister()
+                DebugLogger.shared.info("Successfully unregistered from launch at startup", source: "SettingsStore")
+            }
+        } catch {
+            DebugLogger.shared.error("Failed to update launch at startup: \(error)", source: "SettingsStore")
+            // In development, this is expected to fail without proper signing/entitlements
+            // The setting is still saved and will work when the app is properly signed
+        }
+        #endif
+    }
+
+    private func updateDockVisibility(_ visible: Bool) {
+        #if os(macOS)
+        // IMPORTANT: This is a simplified implementation for development
+        // In production, consider these approaches:
+        // 1. Use LSUIElement in Info.plist to control default dock visibility
+        // 2. Implement a proper helper app or service for dock management
+        // 3. Use NSApplication.shared.setActivationPolicy() for better control
+
+        // For now, we'll try multiple approaches with fallbacks
+
+        DebugLogger.shared.debug("Attempting to update dock visibility to: \(visible ? "visible" : "hidden")", source: "SettingsStore")
+
+        // Method 1: Try the deprecated TransformProcessType (may not work on all systems)
+        let transformState = visible ? ProcessApplicationTransformState(kProcessTransformToForegroundApplication)
+                                     : ProcessApplicationTransformState(kProcessTransformToUIElementApplication)
+
+        var psn = ProcessSerialNumber(highLongOfPSN: 0, lowLongOfPSN: UInt32(kCurrentProcess))
+        let result = TransformProcessType(&psn, transformState)
+
+        if result == 0 {
+            DebugLogger.shared.info("✓ Dock visibility updated using TransformProcessType", source: "SettingsStore")
+        } else {
+            DebugLogger.shared.warning("⚠️ TransformProcessType failed (error: \(result)). This is expected on some macOS versions.", source: "SettingsStore")
+            DebugLogger.shared.debug("   The setting is saved and will be applied when possible.", source: "SettingsStore")
+        }
+
+        // Method 2: Try to notify the system of the change
+        // This may help with some system caches
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApp.setActivationPolicy(visible ? .regular : .accessory)
+            DebugLogger.shared.info("✓ Activation policy updated to: \(visible ? "regular" : "accessory")", source: "SettingsStore")
+        }
+
+        // Store the intended state for reference
+        UserDefaults.standard.set(visible, forKey: "IntendedDockVisibility")
+        DebugLogger.shared.info("✓ Dock visibility preference saved: \(visible)", source: "SettingsStore")
+        #endif
+    }
+}

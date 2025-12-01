@@ -35,8 +35,8 @@ private actor TranscriptionExecutor {
 /// ```
 ///
 /// ## Language Support
-/// Parakeet TDT v2 provides high-quality English transcription with punctuation and capitalization.
-/// This model is optimized for English with the highest recall accuracy.
+/// Parakeet TDT v2 provides high-quality **English-only** transcription with punctuation and capitalization.
+/// This model is optimized for English with the highest recall accuracy. For multilingual support, use v3.
 /// ## Thread Safety
 /// All public methods are marked with @MainActor to ensure thread safety.
 /// Audio processing happens on background threads for optimal performance.
@@ -127,7 +127,7 @@ final class ASRService: ObservableObject
     
     /// Check if models exist on disk without loading them
     func checkIfModelsExist() {
-        let cacheDir = AsrModels.defaultCacheDirectory()
+        let cacheDir = AsrModels.defaultCacheDirectory(for: .v2)
         modelsExistOnDisk = FileManager.default.fileExists(atPath: cacheDir.path)
         DebugLogger.shared.debug("Models exist on disk: \(modelsExistOnDisk) at \(cacheDir.path)", source: "ASRService")
     }
@@ -552,10 +552,10 @@ final class ASRService: ObservableObject
             return
         }
 
-        // Force reinitialization for v3 models by resetting state
+        // Force reinitialization for v2 models by resetting state
         isAsrReady = false
         asrManager = nil
-        
+
         if isAsrReady == false
         {
             let totalStartTime = Date()
@@ -564,7 +564,7 @@ final class ASRService: ObservableObject
                 DebugLogger.shared.info("=== ASR INITIALIZATION START ===", source: "ASRService")
 
                 // Use default cache directory for models
-                let cacheDir = AsrModels.defaultCacheDirectory()
+                let cacheDir = AsrModels.defaultCacheDirectory(for: .v2)
                 let modelsAlreadyCached = FileManager.default.fileExists(atPath: cacheDir.path)
 
                 DebugLogger.shared.info("Model cache directory: \(cacheDir.path)", source: "ASRService")
@@ -591,7 +591,7 @@ final class ASRService: ObservableObject
                 // This call either downloads (if needed) OR just loads from cache
                 let downloadStartTime = Date()
                 DebugLogger.shared.info("Calling AsrModels.downloadAndLoad()...", source: "ASRService")
-                let models = try await AsrModels.downloadAndLoad()
+                let models = try await AsrModels.downloadAndLoad(version: .v2)
                 let downloadDuration = Date().timeIntervalSince(downloadStartTime)
                 DebugLogger.shared.info("✓ AsrModels.downloadAndLoad completed in \(String(format: "%.1f", downloadDuration)) seconds", source: "ASRService")
                 
@@ -680,7 +680,7 @@ final class ASRService: ObservableObject
     {
         DebugLogger.shared.debug("Clearing all model caches to force fresh download", source: "ASRService")
 
-        let baseCacheDir = AsrModels.defaultCacheDirectory().deletingLastPathComponent()
+        let baseCacheDir = AsrModels.defaultCacheDirectory(for: .v2).deletingLastPathComponent()
 
         // Clear v2 cache
         let v2CacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v2-coreml")

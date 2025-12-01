@@ -298,13 +298,13 @@ final class HuggingFaceModelDownloader
 
 extension HuggingFaceModelDownloader
 {
-    /// Load ASR models directly from disk using unified v3 model names
+    /// Load ASR models directly from disk using unified v2 model names
     func loadLocalAsrModels(from repoDirectory: URL) async throws -> AsrModels
     {
         let config = AsrModels.defaultConfiguration()
         let fm = FileManager.default
 
-        // Try to load with new naming convention first (Preprocessor + Encoder)
+        // Load model components
         let preprocessorUrl = repoDirectory.appendingPathComponent("Preprocessor.mlmodelc")
         let encoderUrl = repoDirectory.appendingPathComponent("Encoder.mlmodelc")
         let decUrl = repoDirectory.appendingPathComponent("Decoder.mlmodelc")
@@ -316,40 +316,26 @@ extension HuggingFaceModelDownloader
         print("[ModelDL] Decoder path: \(decUrl.path)")
         print("[ModelDL] JointDecision path: \(jointUrl.path)")
 
-        // Check if new structure exists
-        let hasNewStructure = fm.fileExists(atPath: preprocessorUrl.path) && fm.fileExists(atPath: encoderUrl.path)
-        
-        let melEncoder: MLModel
-        
-        if hasNewStructure {
-            // Load with new structure (separate Preprocessor and Encoder)
-            // For FluidAudio API, we use the Encoder as melEncoder
-            print("[ModelDL] Loading with new model structure (Preprocessor + Encoder)")
-            print("[ModelDL] Using Encoder as melEncoder for FluidAudio API")
-            melEncoder = try MLModel(contentsOf: encoderUrl, configuration: config)
-        } else {
-            // Fallback: Try old structure (MelEncoder)
-            let melEncUrl = repoDirectory.appendingPathComponent("MelEncoder.mlmodelc")
-            print("[ModelDL] New structure not found, trying legacy MelEncoder")
-            print("[ModelDL] MelEncoder path: \(melEncUrl.path)")
-            print("[ModelDL] MelEncoder exists: \(fm.fileExists(atPath: melEncUrl.path))")
-            
-            if fm.fileExists(atPath: melEncUrl.path) {
-                melEncoder = try MLModel(contentsOf: melEncUrl, configuration: config)
-                print("[ModelDL] Using MelEncoder (legacy mode)")
-            } else {
-                throw NSError(domain: "ModelDL", code: -1, userInfo: [
-                    NSLocalizedDescriptionKey: "Neither new model structure (Preprocessor + Encoder) nor legacy structure (MelEncoder) found"
-                ])
-            }
+        // Verify all required files exist
+        guard fm.fileExists(atPath: preprocessorUrl.path) else {
+            throw NSError(domain: "ModelDL", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Preprocessor model not found at \(preprocessorUrl.path)"
+            ])
+        }
+        guard fm.fileExists(atPath: encoderUrl.path) else {
+            throw NSError(domain: "ModelDL", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Encoder model not found at \(encoderUrl.path)"
+            ])
         }
 
-        // Load decoder and joint (same for both structures)
+        // Load all models
+        let preprocessor = try MLModel(contentsOf: preprocessorUrl, configuration: config)
+        let encoder = try MLModel(contentsOf: encoderUrl, configuration: config)
         let decoder = try MLModel(contentsOf: decUrl, configuration: config)
         let joint = try MLModel(contentsOf: jointUrl, configuration: config)
 
         // Load vocabulary (JSON: {"0": "<pad>", ...}) from repo root
-        let vocabPath = repoDirectory.deletingLastPathComponent().appendingPathComponent("parakeet-tdt-0.6b-v2-coreml").appendingPathComponent("parakeet_v2_vocab.json")
+        let vocabPath = repoDirectory.deletingLastPathComponent().appendingPathComponent("parakeet-tdt-0.6b-v2-coreml").appendingPathComponent("parakeet_vocab.json")
         guard fm.fileExists(atPath: vocabPath.path) else {
             throw NSError(domain: "ModelDL", code: -2, userInfo: [NSLocalizedDescriptionKey: "Vocabulary file not found at \(vocabPath.path)"])
         }
@@ -364,11 +350,13 @@ extension HuggingFaceModelDownloader
         print("[ModelDL] Creating AsrModels")
 
         return AsrModels(
-            melEncoder: melEncoder,
+            encoder: encoder,
+            preprocessor: preprocessor,
             decoder: decoder,
             joint: joint,
             configuration: config,
-            vocabulary: vocabulary
+            vocabulary: vocabulary,
+            version: .v2
         )
     }
 }

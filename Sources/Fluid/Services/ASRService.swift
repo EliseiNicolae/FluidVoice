@@ -35,12 +35,8 @@ private actor TranscriptionExecutor {
 /// ```
 ///
 /// ## Language Support
-/// The service automatically detects and transcribes 25 European languages with Parakeet TDT v3:
-/// Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, 
-/// Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, 
-/// Slovak, Slovenian, Spanish, Swedish, Russian, and Ukrainian.
-///
-/// No manual language selection is required - the model automatically detects the spoken language.
+/// Parakeet TDT v2 provides high-quality English transcription with punctuation and capitalization.
+/// This model is optimized for English with the highest recall accuracy.
 /// ## Thread Safety
 /// All public methods are marked with @MainActor to ensure thread safety.
 /// Audio processing happens on background threads for optimal performance.
@@ -59,7 +55,7 @@ final class ASRService: ObservableObject
     @Published var isDownloadingModel: Bool = false
     @Published var isLoadingModel: Bool = false  // True when loading cached model into memory (not downloading)
     @Published var modelsExistOnDisk: Bool = false
-    @Published var selectedModel: ModelOption = .parakeetTdt06bV3
+    @Published var selectedModel: ModelOption = .parakeetTdt06bV2
     
     /// Returns a user-friendly status message for model loading state
     var modelStatusMessage: String {
@@ -72,7 +68,7 @@ final class ASRService: ObservableObject
 
     enum ModelOption: String, CaseIterable, Identifiable, Hashable
     {
-        case parakeetTdt06bV3 = "Parakeet TDT-0.6b v3"
+        case parakeetTdt06bV2 = "Parakeet TDT-0.6b v2"
         var id: String { rawValue }
         var displayName: String { rawValue }
     }
@@ -132,8 +128,8 @@ final class ASRService: ObservableObject
     /// Check if models exist on disk without loading them
     func checkIfModelsExist() {
         let baseCacheDir = AsrModels.defaultCacheDirectory().deletingLastPathComponent()
-        let v3CacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
-        modelsExistOnDisk = FileManager.default.fileExists(atPath: v3CacheDir.path)
+        let v2CacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v2-coreml")
+        modelsExistOnDisk = FileManager.default.fileExists(atPath: v2CacheDir.path)
         DebugLogger.shared.debug("Models exist on disk: \(modelsExistOnDisk)", source: "ASRService")
     }
 
@@ -566,9 +562,9 @@ final class ASRService: ObservableObject
             {
                 DebugLogger.shared.info("=== ASR INITIALIZATION START ===", source: "ASRService")
 
-                // Use separate cache directory for v3 models
+                // Use separate cache directory for v2 models
                 let baseCacheDir = AsrModels.defaultCacheDirectory().deletingLastPathComponent()
-                let cacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
+                let cacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v2-coreml")
                 let modelsAlreadyCached = FileManager.default.fileExists(atPath: cacheDir.path)
                 
                 DebugLogger.shared.info("Model cache directory: \(cacheDir.path)", source: "ASRService")
@@ -579,11 +575,11 @@ final class ASRService: ObservableObject
                 dup2(devNull, STDERR_FILENO)
                 close(devNull)
 
-                // Force v3: remove any v2 cache directory so no fallback occurs
-                let v2CacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v2-coreml")
-                if FileManager.default.fileExists(atPath: v2CacheDir.path) {
-                    try FileManager.default.removeItem(at: v2CacheDir)
-                    DebugLogger.shared.debug("Removed v2 cache directory to force v3", source: "ASRService")
+                // Force v2: remove any v3 cache directory so no fallback occurs
+                let v3CacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
+                if FileManager.default.fileExists(atPath: v3CacheDir.path) {
+                    try FileManager.default.removeItem(at: v3CacheDir)
+                    DebugLogger.shared.debug("Removed v3 cache directory to force v2", source: "ASRService")
                 }
 
                 // Set correct loading state based on whether models are cached
@@ -691,15 +687,16 @@ final class ASRService: ObservableObject
     {
         DebugLogger.shared.debug("Clearing all model caches to force fresh download", source: "ASRService")
 
-        // Clear v2 cache
         let baseCacheDir = AsrModels.defaultCacheDirectory().deletingLastPathComponent()
+
+        // Clear v2 cache
         let v2CacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v2-coreml")
         if FileManager.default.fileExists(atPath: v2CacheDir.path) {
             try FileManager.default.removeItem(at: v2CacheDir)
             DebugLogger.shared.debug("Removed v2 cache directory", source: "ASRService")
         }
 
-        // Clear v3 cache
+        // Clear v3 cache (cleanup)
         let v3CacheDir = baseCacheDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
         if FileManager.default.fileExists(atPath: v3CacheDir.path) {
             try FileManager.default.removeItem(at: v3CacheDir)

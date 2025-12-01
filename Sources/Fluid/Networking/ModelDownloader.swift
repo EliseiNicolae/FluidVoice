@@ -32,7 +32,7 @@ final class HuggingFaceModelDownloader
     init()
     {
         self.owner = "FluidInference"
-        self.repo = "parakeet-tdt-0.6b-v3-coreml"
+        self.repo = "parakeet-tdt-0.6b-v2-coreml"
         self.revision = "main"
         self.baseApiURL = URL(string: "https://huggingface.co/api/models/")!
             .appendingPathComponent(owner)
@@ -161,11 +161,11 @@ final class HuggingFaceModelDownloader
     private func requiredItems() -> [ModelItem]
     {
         return [
-            // Preferred v3 unified model file names used by FluidAudio 0.5+
+            // Parakeet v2 model file names
             ModelItem(path: "MelEncoder.mlmodelc", isDirectory: true),
             ModelItem(path: "Decoder.mlmodelc", isDirectory: true),
             ModelItem(path: "JointDecision.mlmodelc", isDirectory: true),
-            ModelItem(path: "parakeet_v3_vocab.json", isDirectory: false)
+            ModelItem(path: "parakeet_v2_vocab.json", isDirectory: false)
         ]
     }
 
@@ -310,7 +310,7 @@ extension HuggingFaceModelDownloader
         let decUrl = repoDirectory.appendingPathComponent("Decoder.mlmodelc")
         let jointUrl = repoDirectory.appendingPathComponent("JointDecision.mlmodelc")
 
-        print("[ModelDL] Loading v3 models from: \(repoDirectory.path)")
+        print("[ModelDL] Loading v2 models from: \(repoDirectory.path)")
         print("[ModelDL] Preprocessor path: \(preprocessorUrl.path)")
         print("[ModelDL] Encoder path: \(encoderUrl.path)")
         print("[ModelDL] Decoder path: \(decUrl.path)")
@@ -349,7 +349,7 @@ extension HuggingFaceModelDownloader
         let joint = try MLModel(contentsOf: jointUrl, configuration: config)
 
         // Load vocabulary (JSON: {"0": "<pad>", ...}) from repo root
-        let vocabPath = repoDirectory.deletingLastPathComponent().appendingPathComponent("parakeet-tdt-0.6b-v3-coreml").appendingPathComponent("parakeet_v3_vocab.json")
+        let vocabPath = repoDirectory.deletingLastPathComponent().appendingPathComponent("parakeet-tdt-0.6b-v2-coreml").appendingPathComponent("parakeet_v2_vocab.json")
         guard fm.fileExists(atPath: vocabPath.path) else {
             throw NSError(domain: "ModelDL", code: -2, userInfo: [NSLocalizedDescriptionKey: "Vocabulary file not found at \(vocabPath.path)"])
         }

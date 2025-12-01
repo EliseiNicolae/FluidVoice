@@ -46,9 +46,9 @@ https://github.com/user-attachments/assets/c57ef6d5-f0a1-4a3f-a121-637533442c24
 
 ## Features
 - **Live Preview Mode**: Real-time transcription preview in overlay
-- **Real-time transcription** using Parakeet TDT v3 model
+- **Real-time transcription** using Parakeet TDT v2 model (English)
 - **AI enhancement** with OpenAI, Groq, and custom providers
-- **25+ languages** with auto-detection
+- **English-optimized** with highest recall accuracy
 - **Global hotkey** for instant voice capture
 - **Smart typing** directly into any app
 - **Menu bar integration** for quick access

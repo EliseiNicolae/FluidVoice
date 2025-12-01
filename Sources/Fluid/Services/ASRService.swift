@@ -266,7 +266,9 @@ final class ASRService: ObservableObject
             DebugLogger.shared.debug("stop(): full transcription finished", source: "ASRService")
             DebugLogger.shared.debug("Transcription completed: '\(result.text)' (confidence: \(result.confidence))", source: "ASRService")
             // Do not update self.finalText here to avoid instant binding insert in playground
-            return result.text
+            let cleanedText = ASRService.removeFillerWords(result.text)
+            DebugLogger.shared.debug("After filler removal: '\(cleanedText)'", source: "ASRService")
+            return cleanedText
         }
         catch
         {
@@ -778,14 +780,15 @@ final class ASRService: ObservableObject
                 "Streaming chunk CoreML transcription finished in \(String(format: "%.2f", duration))s",
                 source: "ASRService"
             )
-            let newText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            
+            let rawText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let newText = ASRService.removeFillerWords(rawText)
+
             if !newText.isEmpty {
                 // Smart diff: only show truly new words
                 let updatedText = smartDiffUpdate(previous: previousFullTranscription, current: newText)
                 partialTranscription = updatedText
                 previousFullTranscription = newText
-                
+
                 DebugLogger.shared.debug("✅ Streaming: '\(updatedText)' (\(String(format: "%.2f", duration))s)", source: "ASRService")
             }
             
@@ -836,6 +839,22 @@ final class ASRService: ObservableObject
     func typeTextToActiveField(_ text: String)
     {
         typingService.typeTextInstantly(text)
+    }
+
+    // MARK: - Filler Word Removal
+
+    /// Removes filler sounds from transcribed text
+    static func removeFillerWords(_ text: String) -> String {
+        guard SettingsStore.shared.removeFillerWordsEnabled else { return text }
+
+        let fillers = Set(SettingsStore.shared.fillerWords.map { $0.lowercased() })
+
+        let words = text.split(separator: " ", omittingEmptySubsequences: true)
+        let filtered = words.filter { word in
+            !fillers.contains(word.lowercased().trimmingCharacters(in: .punctuationCharacters))
+        }
+
+        return filtered.joined(separator: " ")
     }
 }
 
